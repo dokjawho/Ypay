@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · Groups</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="groups"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>Groups</em></div>
+        <div class="page-subtitle">Shared expense groups</div>
+      </div>
+      <div class="header-tools">
+        <button class="header-add-btn" id="btnNew">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>New Group
+        </button>
+      </div>
+    </header>
+    <div style="padding:28px 36px;flex:1;overflow-y:auto">
+      <div class="groups-grid animate" id="groupsGrid"></div>
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  function renderGroups() {
+    const groups=Groups.getAll();
+    const grid=document.getElementById('groupsGrid');
+    grid.innerHTML='';
+    // HOF: forEach to build cards
+    groups.forEach(g => {
+      const card=document.createElement('div'); card.className='group-card';
+      // HOF: map members to avatars
+      const avatars=g.members.map(id=>{
+        const f=id==='me'?{initials:'ME',color:'#c9a84c'}:Friends.getById(id)||{initials:'?',color:'#888'};
+        return renderAvatar(f,34);
+      }).join('');
+      card.innerHTML=`
+        <div class="group-card-top">
+          <div><div class="group-name">${g.name}</div><div class="group-meta">${g.members.length} member${g.members.length!==1?'s':''} · ${g.created}</div></div>
+          <button class="group-delete" onclick="event.stopPropagation();deleteGroup('${g.id}')"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg></button>
+        </div>
+        <div class="group-avatars" style="margin-bottom:16px">${avatars}</div>
+        <div style="display:flex;gap:8px">
+          <button onclick="viewGroup('${g.id}')" class="settle-btn" style="flex:1;padding:8px;text-align:center">Manage</button>
+          <button onclick="splitInGroup('${g.id}')" class="header-add-btn" style="flex:1;padding:8px;font-size:12px">+ Split</button>
+        </div>`;
+      grid.appendChild(card);
+    });
+    const add=document.createElement('div'); add.className='add-item-card';
+    add.innerHTML=`<svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg> New Group`;
+    add.onclick=openNewGroup; grid.appendChild(add);
+  }
+
+  function openNewGroup() {
+    const friends=Friends.getAll();
+    const checks=friends.length
+      ? `<div class="check-grid">${friends.map(f=>`<div class="check-item" id="gci-${f.id}" onclick="toggleG('${f.id}')"><input type="checkbox" id="gchk-${f.id}"/><label for="gchk-${f.id}">${f.name}</label></div>`).join('')}</div>`
+      : `<p style="font-size:13px;color:var(--text-dim)">Add friends first to include them.</p>`;
+    openModal('Create Group',`
+      <div class="form-group"><label class="form-label">Group Name</label><input class="form-input" id="m-gname" type="text" placeholder="e.g. Goa Trip 🌊" autofocus/></div>
+      <div class="form-group"><label class="form-label">Add Members</label>${checks}<div style="font-size:11px;color:var(--text-dim);margin-top:6px">You are always included.</div></div>`, {
+      confirmLabel:'Create Group',
+      onConfirm: async () => {
+        const btn=document.getElementById('_modal-confirm');
+        const name=document.getElementById('m-gname').value.trim();
+        // HOF: map checked checkboxes → member ids
+        const members=Array.from(document.querySelectorAll('[id^=gchk-]:checked')).map(c=>c.id.replace('gchk-',''));
+        setLoading(btn,true);
+        try {
+          const res=await Groups.create(name, members);
+          if(res.ok){ closeModal(); renderGroups(); showToast(`"${res.group.name}" created!`); }
+          else      { showToast(res.error,'error'); }
+        } catch(err){ showToast('Failed','error'); }
+        finally     { setLoading(btn,false); }
+      }
+    });
+    setTimeout(()=>document.getElementById('m-gname')?.focus(),50);
+  }
+
+  window.toggleG = id => {
+    const chk=document.getElementById('gchk-'+id), ci=document.getElementById('gci-'+id);
+    chk.checked=!chk.checked; ci.classList.toggle('selected',chk.checked);
+  };
+
+  window.viewGroup = gId => {
+    const g=Groups.getById(gId); if(!g) return;
+    const notIn=Friends.getAll().filter(f=>!g.members.includes(f.id)); // HOF: filter
+    const memberRows=g.members.map(id=>{
+      const f=id==='me'?{initials:'ME',color:'#c9a84c',name:'You (Me)'}:Friends.getById(id)||{initials:'?',color:'#888',name:'Unknown'};
+      return `<div style="display:flex;align-items:center;gap:10px;padding:10px 0;border-bottom:1px solid var(--border)">
+        ${renderAvatar(f,34)}<span style="flex:1;font-size:13.5px">${f.name}</span>
+        ${id!=='me'?`<button onclick="kickMember('${gId}','${id}')" style="font-size:11px;padding:4px 10px;border-radius:7px;border:1px solid var(--border);background:none;color:var(--text-dim);cursor:pointer">Remove</button>`:'<span style="font-size:11px;color:var(--text-dim)">Admin</span>'}
+      </div>`;
+    }).join('');
+    const addOpts=notIn.length
+      ? `<select class="form-select" id="m-addmem" style="margin-top:12px"><option value="">— add friend —</option>${notIn.map(f=>`<option value="${f.id}">${f.name}</option>`).join('')}</select><button onclick="doAddMember('${gId}')" class="send-btn" style="margin-top:10px;padding:10px">Add Member</button>`
+      : `<div style="font-size:12px;color:var(--text-dim);margin-top:10px">All friends already in this group.</div>`;
+    openModal(`Group: ${g.name}`,`<div style="margin-bottom:14px">${memberRows}</div>${addOpts}`,{ cancelLabel:'Close' });
+  };
+
+  window.kickMember = async (gId, fId) => {
+    try {
+      const res=await Groups.removeMember(gId, fId);
+      if(res.ok){ closeModal(); renderGroups(); showToast('Member removed'); }
+      else      { showToast(res.error,'error'); }
+    } catch(err){ showToast('Failed','error'); }
+  };
+
+  window.doAddMember = async gId => {
+    const sel=document.getElementById('m-addmem');
+    if(!sel?.value){ showToast('Pick a friend','error'); return; }
+    try {
+      const res=await Groups.addMember(gId, sel.value);
+      if(res.ok){ closeModal(); renderGroups(); showToast(`${Friends.getName(sel.value)} added!`); }
+      else      { showToast(res.error,'error'); }
+    } catch(err){ showToast('Failed','error'); }
+  };
+
+  window.splitInGroup = gId => {
+    const g=Groups.getById(gId); if(!g) return;
+    openModal(`Split in "${g.name}"`,`
+      <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="m-sdesc" type="text" placeholder="e.g. Hotel checkout" autofocus/></div>
+      <div class="form-group"><label class="form-label">Total (₹)</label><input class="form-input" id="m-stotal" type="number" min="1" placeholder="0"/></div>
+      <div style="font-size:12px;color:var(--text-dim);background:var(--surface);border-radius:8px;padding:10px">
+        Splits equally: <strong>${g.members.map(id=>Friends.getName(id)).join(', ')}</strong>
+      </div>
+      <div style="font-size:12px;color:var(--text-dim);margin-top:8px">Balance: <strong style="color:var(--gold)">${formatINR(Wallet.getBalance())}</strong></div>`,{
+      confirmLabel:'Create Split',
+      onConfirm: async () => {
+        const btn=document.getElementById('_modal-confirm');
+        const desc=document.getElementById('m-sdesc').value;
+        const total=parseFloat(document.getElementById('m-stotal').value);
+        setLoading(btn,true);
+        try {
+          const res=await Splits.createEqual(desc, total, g.members, 'me');
+          if(res.ok){ closeModal(); showToast(`Split! ${formatINR(res.perPerson)} each`); }
+          else      { showToast(res.error,'error'); }
+        } catch(err){ showToast('Failed','error'); }
+        finally     { setLoading(btn,false); }
+      }
+    });
+    setTimeout(()=>document.getElementById('m-sdesc')?.focus(),50);
+  };
+
+  window.deleteGroup = id => {
+    const g=Groups.getById(id);
+    openModal(`Delete "${g?.name}"?`,`<p style="color:var(--text-mid)">This group will be removed.</p>`,{
+      confirmLabel:'Delete',danger:true,
+      onConfirm: async()=>{ await Groups.delete(id); closeModal(); renderGroups(); showToast('Group deleted'); }
+    });
+  };
+
+  document.getElementById('btnNew').addEventListener('click', openNewGroup);
+  renderGroups();
+</script>
+</body>
+</html>

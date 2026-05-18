@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · Split</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="split"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>Split</em> Expenses</div>
+        <div class="page-subtitle">Equal or custom · settle with Promise.all</div>
+      </div>
+      <div class="header-tools">
+        <div class="net-row" style="margin-bottom:0">
+          <div class="net-pill net-owed" id="pillOwed" style="display:none">↑ <span id="owedAmt"></span> owed to you</div>
+          <div class="net-pill net-owe"  id="pillOwe"  style="display:none">↓ You owe <span id="oweAmt"></span></div>
+        </div>
+      </div>
+    </header>
+
+    <div class="body" style="align-items:flex-start">
+      <!-- Form col -->
+      <div class="split-form-col">
+        <div class="tabs">
+          <button class="tab-btn active" data-tab="equal">⚖️ Equal</button>
+          <button class="tab-btn" data-tab="custom">✏️ Custom</button>
+        </div>
+
+        <!-- Equal -->
+        <div id="tabEqual" class="section-card">
+          <div class="section-card-title">Equal Split</div>
+          <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="eq-desc" type="text" placeholder="e.g. Dinner at Pebble St."/></div>
+          <div class="form-group"><label class="form-label">Total (₹)</label><input class="form-input" id="eq-total" type="number" min="1" placeholder="0" oninput="calcEqual()"/></div>
+          <div class="form-group"><label class="form-label">Paid by</label><select class="form-select" id="eq-paidby" onchange="calcEqual()"><option value="me">Me</option></select></div>
+          <div class="form-group"><label class="form-label">Split between</label><div class="check-grid" id="eq-people"></div></div>
+          <div style="background:var(--surface);border-radius:10px;padding:13px 16px;margin-bottom:14px;display:flex;justify-content:space-between">
+            <div><div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">Each pays</div><div style="font-family:var(--fser);font-size:26px;color:var(--gold)" id="eq-per">₹0</div></div>
+            <div style="text-align:right"><div style="font-size:11px;color:var(--text-dim);margin-bottom:3px">People</div><div style="font-family:var(--fser);font-size:26px" id="eq-count">0</div></div>
+          </div>
+          <div style="font-size:12px;color:var(--text-dim);background:var(--surface);border-radius:8px;padding:10px;margin-bottom:12px" id="eq-check"></div>
+          <button class="send-btn" id="btnEqCreate" onclick="doEqualSplit()">Create Equal Split</button>
+        </div>
+
+        <!-- Custom -->
+        <div id="tabCustom" class="section-card" style="display:none">
+          <div class="section-card-title">Custom Split</div>
+          <div class="form-group"><label class="form-label">Description</label><input class="form-input" id="cu-desc" type="text" placeholder="e.g. Hotel + meals"/></div>
+          <div class="form-group"><label class="form-label">Paid by</label><select class="form-select" id="cu-paidby" onchange="calcCustom()"><option value="me">Me</option></select></div>
+          <label class="form-label" style="margin-bottom:8px;display:block">Participants</label>
+          <div id="cu-parts"></div>
+          <button onclick="addPart()" style="width:100%;padding:9px;border-radius:10px;border:1.5px dashed rgba(255,255,255,0.12);background:none;color:var(--text-dim);font-size:13px;cursor:pointer;margin-bottom:12px" onmouseover="this.style.borderColor='var(--gold-glow)';this.style.color='var(--gold)'" onmouseout="this.style.borderColor='rgba(255,255,255,0.12)';this.style.color='var(--text-dim)'">+ Add person</button>
+          <div class="custom-total-row"><span style="color:var(--text-dim)">Total</span><span class="custom-total-val" id="cu-total">₹0</span></div>
+          <div style="font-size:12px;color:var(--text-dim);background:var(--surface);border-radius:8px;padding:10px;margin:10px 0" id="cu-check"></div>
+          <button class="send-btn" id="btnCuCreate" onclick="doCustomSplit()">Create Custom Split</button>
+        </div>
+      </div>
+
+      <!-- List col -->
+      <div class="split-list-col">
+        <div style="font-family:var(--fser);font-size:22px;font-style:italic;font-weight:300;margin-bottom:18px">Active Splits</div>
+        <div id="splitList"></div>
+      </div>
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  // Tabs
+  document.querySelectorAll('[data-tab]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('[data-tab]').forEach(b=>b.classList.remove('active')); btn.classList.add('active');
+      document.getElementById('tabEqual').style.display  = btn.dataset.tab==='equal'?'':'none';
+      document.getElementById('tabCustom').style.display = btn.dataset.tab==='custom'?'':'none';
+    });
+  });
+
+  // Populate friend selects
+  function populateSelect(id) {
+    const sel=document.getElementById(id);
+    Friends.getAll().forEach(f => {
+      if (!Array.from(sel.options).find(o=>o.value===f.id)) {
+        const o=document.createElement('option'); o.value=f.id; o.textContent=f.name; sel.appendChild(o);
+      }
+    });
+  }
+
+  // Equal split people checkboxes
+  function buildEqPeople() {
+    const all=[{id:'me',name:'Me (You)'},...Friends.getAll()];
+    document.getElementById('eq-people').innerHTML = all.map(f=>`
+      <div class="check-item ${f.id==='me'?'selected':''}" id="ci-${f.id}" onclick="toggleCheck('${f.id}')">
+        <input type="checkbox" id="chk-${f.id}" ${f.id==='me'?'checked':''}/>
+        <label for="chk-${f.id}">${f.name}</label>
+      </div>`).join('');
+    calcEqual();
+  }
+
+  function toggleCheck(id) {
+    const chk=document.getElementById('chk-'+id), ci=document.getElementById('ci-'+id);
+    chk.checked=!chk.checked; ci.classList.toggle('selected',chk.checked); calcEqual();
+  }
+
+  function calcEqual() {
+    const total=parseFloat(document.getElementById('eq-total').value)||0;
+    const count=Array.from(document.querySelectorAll('#eq-people input:checked')).length;
+    document.getElementById('eq-per').textContent  = formatINR(count>0?Math.round(total/count):0);
+    document.getElementById('eq-count').textContent= count;
+    const paidBy=document.getElementById('eq-paidby').value;
+    const chk=document.getElementById('eq-check');
+    if(paidBy==='me'&&total>0) {
+      const can=Wallet.canAfford(total);
+      chk.innerHTML=can?`✅ Balance <strong style="color:var(--green)">${formatINR(Wallet.getBalance())}</strong> — sufficient`
+                       :`❌ Balance <strong style="color:var(--red)">${formatINR(Wallet.getBalance())}</strong> — insufficient`;
+    } else { chk.innerHTML=`💰 Balance: <strong style="color:var(--gold)">${formatINR(Wallet.getBalance())}</strong>`; }
+  }
+
+  // async equal split with setLoading + try/catch
+  async function doEqualSplit() {
+    const btn  = document.getElementById('btnEqCreate');
+    const desc = document.getElementById('eq-desc').value.trim();
+    const total= parseFloat(document.getElementById('eq-total').value);
+    const paidBy=document.getElementById('eq-paidby').value;
+    const ids  = Array.from(document.querySelectorAll('#eq-people input:checked')).map(c=>c.id.replace('chk-',''));
+    setLoading(btn,true);
+    try {
+      const res = await Splits.createEqual(desc, total, ids, paidBy);  // await
+      if(res.ok) {
+        showToast(`Split created! ${formatINR(res.perPerson)} each`);
+        document.getElementById('eq-desc').value=''; document.getElementById('eq-total').value='';
+        refreshSplits(); refreshPills(); calcEqual();
+      } else { showToast(res.error,'error'); }
+    } catch(err) { showToast('Failed to create split','error'); console.error(err); }
+    finally      { setLoading(btn,false); }
+  }
+
+  // Custom split
+  let customParts=[];
+  function buildParts() {
+    const all=[{id:'me',name:'Me (You)',initials:'ME',color:'#c9a84c'},...Friends.getAll()];
+    document.getElementById('cu-parts').innerHTML = customParts.map((p,i)=>{
+      const f=all.find(x=>x.id===p.id)||{initials:'?',color:'#888',name:p.id};
+      return `<div class="custom-part-row">${renderAvatar(f,30)}<span class="part-name">${f.name}</span>
+        <input class="form-input part-input" type="number" min="0" placeholder="₹0" value="${p.amount||''}" oninput="customParts[${i}].amount=parseFloat(this.value)||0;calcCustom()"/>
+        <button class="remove-part" onclick="customParts.splice(${i},1);buildParts()">×</button></div>`;
+    }).join('');
+    calcCustom();
+  }
+
+  function addPart() {
+    const all=[{id:'me'},...Friends.getAll()];
+    const used=customParts.map(p=>p.id);
+    const next=all.find(p=>!used.includes(p.id));
+    if(!next) { showToast('All people added'); return; }
+    customParts.push({id:next.id,amount:0}); buildParts();
+  }
+
+  function calcCustom() {
+    const total=customParts.reduce((s,p)=>s+p.amount,0); // HOF: reduce
+    document.getElementById('cu-total').textContent=formatINR(total);
+    const paidBy=document.getElementById('cu-paidby').value;
+    const chk=document.getElementById('cu-check');
+    if(paidBy==='me'&&total>0) {
+      const can=Wallet.canAfford(total);
+      chk.innerHTML=can?`✅ You have <strong style="color:var(--green)">${formatINR(Wallet.getBalance())}</strong>`
+                       :`❌ You have <strong style="color:var(--red)">${formatINR(Wallet.getBalance())}</strong> — not enough`;
+    } else { chk.innerHTML=`💰 Balance: <strong style="color:var(--gold)">${formatINR(Wallet.getBalance())}</strong>`; }
+  }
+
+  async function doCustomSplit() {
+    const btn   =document.getElementById('btnCuCreate');
+    const desc  =document.getElementById('cu-desc').value.trim();
+    const paidBy=document.getElementById('cu-paidby').value;
+    setLoading(btn,true);
+    try {
+      const res=await Splits.createCustom(desc, customParts, paidBy);
+      if(res.ok) {
+        showToast('Custom split created!');
+        document.getElementById('cu-desc').value=''; customParts=[]; buildParts();
+        refreshSplits(); refreshPills();
+      } else { showToast(res.error,'error'); }
+    } catch(err) { showToast('Failed','error'); console.error(err); }
+    finally      { setLoading(btn,false); }
+  }
+
+  // Render split list
+  function refreshSplits() {
+    const splits=Splits.getAll();
+    const el=document.getElementById('splitList');
+    if(!splits.length) { el.innerHTML=`<div class="empty-state"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.2"><path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m10 0h3a2 2 0 0 0 2-2v-3"/><path d="M7 12h10M12 7v10"/></svg><p>No splits yet. Create one!</p></div>`; return; }
+    el.innerHTML=splits.map(split=>{
+      const allSettled=split.participants.every(p=>p.settled);
+      const rows=split.participants.map(p=>{
+        const canSettle=!p.settled&&((p.id==='me'&&split.paidBy!=='me')||(p.id!=='me'&&split.paidBy==='me'));
+        return `<div class="split-part-row">${renderAvatar(p.id==='me'?{initials:'ME',color:'#c9a84c'}:Friends.getById(p.id),28)}
+          <span class="split-part-name">${Friends.getName(p.id)}</span>
+          <span class="split-part-amount">${formatINR(p.amount)}</span>
+          ${p.settled?`<span class="badge-settled">Settled</span>`
+            :canSettle?`<button class="settle-btn" id="sb-${split.id}-${p.id}" onclick="doSettle('${split.id}','${p.id}')">Settle</button>`
+            :`<span class="badge-unsettled">Pending</span>`}
+        </div>`;
+      }).join('');
+      const unsettledCount=split.participants.filter(p=>!p.settled).length; // HOF: filter
+      return `<div class="split-item">
+        <div class="split-head">
+          <div><div class="split-desc">${split.description}</div>
+            <div class="split-meta">${split.date} · Paid by ${Friends.getName(split.paidBy)}${allSettled?' · <span style="color:var(--green)">✓ All settled</span>':''}</div></div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <div class="split-total">${formatINR(split.total)}</div>
+            ${!allSettled&&unsettledCount>1?`<button id="sab-${split.id}" onclick="doSettleAll('${split.id}')" class="settle-btn" style="font-size:11px">Settle All</button>`:''}
+            <button onclick="doDeleteSplit('${split.id}')" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;padding:2px 6px">×</button>
+          </div>
+        </div>
+        <div class="split-participants">${rows}</div>
+      </div>`;
+    }).join('');
+  }
+
+  function refreshPills() {
+    const owed=Splits.getOwedToMe(), iOwe=Splits.getIOwed();
+    const p1=document.getElementById('pillOwed'), p2=document.getElementById('pillOwe');
+    owed>0?(p1.style.display='flex',document.getElementById('owedAmt').textContent=formatINR(owed)):p1.style.display='none';
+    iOwe>0?(p2.style.display='flex',document.getElementById('oweAmt').textContent=formatINR(iOwe)):p2.style.display='none';
+  }
+
+  // async settle — single
+  window.doSettle = async (splitId, partId) => {
+    const btn=document.getElementById(`sb-${splitId}-${partId}`);
+    if(btn){btn.disabled=true;btn.textContent='…';}
+    try {
+      const res=await Splits.settle(splitId, partId);
+      if(res.ok){refreshSplits();refreshPills();showToast('Settled! 🎉');}
+      else      {showToast(res.error,'error');if(btn){btn.disabled=false;btn.textContent='Settle';}}
+    } catch(err){showToast('Failed','error');console.error(err);}
+  };
+
+  // async settle ALL — uses Promise.all internally
+  window.doSettleAll = async splitId => {
+    const btn=document.getElementById('sab-'+splitId);
+    if(btn){btn.disabled=true;btn.textContent='…';}
+    try {
+      const res=await Splits.settleAll(splitId);   // Promise.all inside
+      if(res.ok){refreshSplits();refreshPills();showToast(`${res.count} settlement${res.count!==1?'s':''} done! 🎉`);}
+      else      {showToast(res.error,'error');}
+    } catch(err){showToast('Failed','error');console.error(err);}
+  };
+
+  window.doDeleteSplit = id => {
+    openModal('Delete Split?','<p style="color:var(--text-mid)">Wallet changes already made won\'t reverse.</p>',{
+      confirmLabel:'Delete',danger:true,
+      onConfirm:async()=>{ await Splits.delete(id); closeModal(); refreshSplits(); refreshPills(); showToast('Split deleted'); }
+    });
+  };
+
+  // Init
+  buildEqPeople(); populateSelect('eq-paidby'); populateSelect('cu-paidby');
+  customParts=[{id:'me',amount:0}]; buildParts();
+  refreshSplits(); refreshPills();
+</script>
+</body>
+</html>

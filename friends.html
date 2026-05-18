@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · Friends</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="friends"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>Friends</em></div>
+        <div class="page-subtitle">Your contacts for splitting &amp; sending</div>
+      </div>
+      <div class="header-tools">
+        <div class="search-wrap">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="friendSearch" placeholder="Search friends…"/>
+        </div>
+        <button class="header-add-btn" id="btnAddFriend">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><line x1="19" y1="8" x2="19" y2="14"/><line x1="22" y1="11" x2="16" y2="11"/></svg>Add Friend
+        </button>
+      </div>
+    </header>
+
+    <div style="padding:28px 36px;flex:1;overflow-y:auto">
+      <div style="display:flex;gap:14px;margin-bottom:28px" class="animate">
+        <div class="glass-card" style="flex:1;padding:18px 22px"><div class="stat-lbl">Total Friends</div><div class="stat-val" id="statCount" style="font-size:28px;margin-top:6px">0</div></div>
+        <div class="glass-card" style="flex:1;padding:18px 22px"><div class="stat-lbl">You Owe</div><div class="stat-val" id="statOwe" style="font-size:28px;margin-top:6px;color:var(--red)">—</div></div>
+        <div class="glass-card" style="flex:1;padding:18px 22px"><div class="stat-lbl">Owed to You</div><div class="stat-val" id="statOwed" style="font-size:28px;margin-top:6px;color:var(--green)">—</div></div>
+      </div>
+      <div class="friends-grid animate delay-1" id="friendsGrid"></div>
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  let searchQ='';
+
+  function render() {
+    // HOF: filter by search query
+    const friends=Friends.getAll().filter(f =>
+      f.name.toLowerCase().includes(searchQ) || f.phone.includes(searchQ)
+    );
+    document.getElementById('statCount').textContent = Friends.getAll().length;
+    document.getElementById('statOwe').textContent   = formatINR(Splits.getIOwed());
+    document.getElementById('statOwed').textContent  = formatINR(Splits.getOwedToMe());
+
+    const grid=document.getElementById('friendsGrid');
+    if(!friends.length) { grid.innerHTML=`<div class="empty-state" style="grid-column:1/-1"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg><p>${searchQ?'No matches.':'No friends yet!'}</p></div>`; return; }
+
+    // HOF: map friends → card HTML
+    grid.innerHTML = friends.map(f => {
+      // HOF: reduce + find for per-friend debt
+      const owedByThem = APP.splits
+        .filter(s=>s.paidBy==='me')
+        .reduce((sum,s)=>{ const p=s.participants.find(p=>p.id===f.id); return sum+(p&&!p.settled?p.amount:0); },0);
+      const iOweThem = APP.splits
+        .filter(s=>s.paidBy===f.id)
+        .reduce((sum,s)=>{ const p=s.participants.find(p=>p.id==='me'); return sum+(p&&!p.settled?p.amount:0); },0);
+      const debtLabel = owedByThem>0
+        ? `<div style="font-size:11px;color:var(--green);margin-top:4px">Owes you ${formatINR(owedByThem)}</div>`
+        : iOweThem>0
+          ? `<div style="font-size:11px;color:var(--red);margin-top:4px">You owe ${formatINR(iOweThem)}</div>`
+          : `<div style="font-size:11px;color:var(--text-dim);margin-top:4px">All settled</div>`;
+      return `<div class="friend-card">
+        ${renderAvatar(f,44)}
+        <div class="friend-info"><div class="friend-name">${f.name}</div><div class="friend-phone">${f.phone||'No phone'}</div>${debtLabel}</div>
+        <div style="display:flex;flex-direction:column;gap:6px">
+          <button class="settle-btn" onclick="quickSend('${f.id}')">Send</button>
+          <button class="friend-remove" onclick="removeFriend('${f.id}')">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14H6L5 6"/></svg>
+          </button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+
+  // DOM event: click — async with try/catch
+  document.getElementById('btnAddFriend').addEventListener('click', () => {
+    openModal('Add Friend', `
+      <div class="form-group"><label class="form-label">Name</label><input class="form-input" id="m-name" type="text" placeholder="e.g. Priya Sharma" autofocus/></div>
+      <div class="form-group"><label class="form-label">Phone (optional)</label><input class="form-input" id="m-phone" type="tel" placeholder="10-digit number"/></div>`, {
+      confirmLabel:'Add Friend',
+      onConfirm: async () => {
+        const btn=document.getElementById('_modal-confirm');
+        const name=document.getElementById('m-name').value;
+        const phone=document.getElementById('m-phone').value;
+        setLoading(btn,true);
+        try {
+          const res=await Friends.add(name, phone);   // await
+          if(res.ok) { closeModal(); render(); showToast(`${res.friend.name} added!`); }
+          else       { showToast(res.error,'error'); }
+        } catch(err) { showToast('Failed','error'); console.error(err); }
+        finally      { setLoading(btn,false); }
+      }
+    });
+    setTimeout(()=>document.getElementById('m-name')?.focus(),50);
+  });
+
+  window.removeFriend = id => {
+    const f=Friends.getById(id);
+    openModal(`Remove ${f?.name}?`,`<p style="color:var(--text-mid)">This removes <strong>${f?.name}</strong> from your friends and groups.</p>`,{
+      confirmLabel:'Remove',danger:true,
+      onConfirm: async () => {
+        const btn=document.getElementById('_modal-confirm');
+        setLoading(btn,true);
+        try {
+          const res=await Friends.remove(id);
+          if(res.ok) { closeModal(); render(); showToast('Friend removed'); }
+          else       { showToast(res.error,'error'); }
+        } catch(err) { showToast('Failed','error'); }
+        finally      { setLoading(btn,false); }
+      }
+    });
+  };
+
+  window.quickSend = id => {
+    const f=Friends.getById(id);
+    openModal(`Send to ${f.name}`, `
+      <div class="form-group"><label class="form-label">Amount (₹)</label><input class="form-input" id="m-amt" type="number" min="1" placeholder="0" autofocus/></div>
+      <div class="form-group"><label class="form-label">Note</label><input class="form-input" id="m-note" type="text" placeholder="optional"/></div>
+      <div style="font-size:12px;color:var(--text-dim)">Balance: <strong style="color:var(--gold)">${formatINR(Wallet.getBalance())}</strong></div>`, {
+      confirmLabel:'Send',
+      onConfirm: async () => {
+        const btn=document.getElementById('_modal-confirm');
+        const amt=parseFloat(document.getElementById('m-amt').value);
+        const note=document.getElementById('m-note').value;
+        setLoading(btn,true);
+        try {
+          const res=await Payments.send(id, amt, note);
+          if(res.ok) { closeModal(); render(); showToast(`Sent ${formatINR(amt)} to ${f.name}`); }
+          else       { showToast(res.error,'error'); }
+        } catch(err) { showToast('Failed','error'); }
+        finally      { setLoading(btn,false); }
+      }
+    });
+    setTimeout(()=>document.getElementById('m-amt')?.focus(),50);
+  };
+
+  // DOM event: input — search
+  document.getElementById('friendSearch').addEventListener('input', e => {
+    searchQ=e.target.value.toLowerCase(); render();
+  });
+
+  render();
+</script>
+</body>
+</html>

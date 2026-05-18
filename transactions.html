@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · Transactions</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="transactions"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>Transactions</em></div>
+        <div class="page-subtitle">Full history · search · filter</div>
+      </div>
+      <div class="header-tools">
+        <div class="search-wrap">
+          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.8"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="text" id="txSearch" placeholder="Search…"/>
+        </div>
+      </div>
+    </header>
+    <div style="padding:28px 36px;flex:1;overflow-y:auto">
+      <div class="card-grid-3 animate" style="margin-bottom:24px">
+        <div class="glass-card"><div class="stat-lbl">Total Income</div><div class="stat-val" id="sumIncome" style="color:var(--green);font-size:26px;margin-top:6px">—</div></div>
+        <div class="glass-card"><div class="stat-lbl">Total Spent</div><div class="stat-val" id="sumExpense" style="color:var(--red);font-size:26px;margin-top:6px">—</div></div>
+        <div class="glass-card"><div class="stat-lbl">Net Balance</div><div class="stat-val" id="sumBalance" style="font-size:26px;margin-top:6px">—</div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap" class="animate delay-1">
+        <button class="filter-btn active" data-tf="all">All</button>
+        <button class="filter-btn" data-tf="credit">Income</button>
+        <button class="filter-btn" data-tf="debit">Expenses</button>
+        <div style="flex:1"></div>
+        <select class="form-select" id="catFilter" style="width:auto;padding:6px 12px;font-size:12.5px">
+          <option value="">All Categories</option>
+        </select>
+      </div>
+      <div id="txFullList" class="animate delay-2" style="display:flex;flex-direction:column;gap:2px"></div>
+      <div class="no-results" id="noResults"><svg fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg><p>No transactions match</p></div>
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  let txFilter='all', catFilter='', searchQ='';
+
+  function init() {
+    // HOF: map to extract unique categories
+    const cats=[...new Set(Wallet.getTransactions().map(t=>t.category))].sort();
+    const sel=document.getElementById('catFilter');
+    cats.forEach(c=>{ const o=document.createElement('option'); o.value=c; o.textContent=c; sel.appendChild(o); });
+
+    const stats=Wallet.getStats();
+    document.getElementById('sumIncome').textContent  = formatINR(stats.income);
+    document.getElementById('sumExpense').textContent = formatINR(stats.expense);
+    const nb=document.getElementById('sumBalance');
+    nb.textContent=formatINR(stats.balance);
+    nb.style.color=stats.balance>=0?'var(--green)':'var(--red)';
+    render();
+  }
+
+  function render() {
+    // HOF: chained filter calls + map for rendering
+    const txs=Wallet.getTransactions()
+      .filter(tx => txFilter==='all'||tx.type===txFilter)
+      .filter(tx => !catFilter||tx.category===catFilter)
+      .filter(tx => !searchQ||tx.description.toLowerCase().includes(searchQ)||tx.category.toLowerCase().includes(searchQ));
+
+    const list=document.getElementById('txFullList');
+    if(!txs.length){ list.innerHTML=''; document.getElementById('noResults').classList.add('visible'); return; }
+    document.getElementById('noResults').classList.remove('visible');
+
+    // Group by date using reduce (HOF)
+    const byDate=txs.reduce((acc,tx)=>{ (acc[tx.date]=acc[tx.date]||[]).push(tx); return acc; },{});
+
+    list.innerHTML=Object.entries(byDate).map(([date,items])=>`
+      <div style="margin-bottom:20px">
+        <div style="font-size:11.5px;color:var(--text-dim);letter-spacing:0.08em;text-transform:uppercase;margin-bottom:8px;padding-left:4px">${date}</div>
+        ${items.map(renderTxItem).join('')}
+      </div>`).join('');
+  }
+
+  // DOM events: click + input + change
+  document.querySelectorAll('[data-tf]').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      document.querySelectorAll('[data-tf]').forEach(b=>b.classList.remove('active'));
+      btn.classList.add('active'); txFilter=btn.dataset.tf; render();
+    });
+  });
+  document.getElementById('catFilter').addEventListener('change',e=>{ catFilter=e.target.value; render(); });
+  document.getElementById('txSearch').addEventListener('input',e=>{ searchQ=e.target.value.toLowerCase(); render(); });
+
+  init();
+</script>
+</body>
+</html>

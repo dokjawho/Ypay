@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · Settings</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="settings"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>Settings</em></div>
+        <div class="page-subtitle">Preferences &amp; account</div>
+      </div>
+    </header>
+    <div class="settings-body">
+
+      <div class="settings-section">
+        <div class="settings-section-title">Profile</div>
+        <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px">
+          <div style="width:60px;height:60px;border-radius:50%;background:linear-gradient(135deg,var(--gold),#8a6520);display:flex;align-items:center;justify-content:center;font-size:20px;font-weight:700;color:var(--bg)">AK</div>
+          <div><div style="font-size:16px;font-weight:500">Arjun Kapoor</div><div style="font-size:12px;color:var(--text-dim)">Obsidian Reserve · @arjun.k</div></div>
+        </div>
+        <div class="setting-row"><div><div class="setting-label">UPI ID</div><div class="setting-sub">arjun@ypay</div></div><span class="pill-badge pill-green">Verified</span></div>
+        <div class="setting-row"><div><div class="setting-label">Card</div><div class="setting-sub">•••• •••• •••• 3091</div></div><span class="pill-badge pill-gold">Obsidian</span></div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Live API Status</div>
+        <div class="setting-row">
+          <div><div class="setting-label">USD → INR Rate</div><div class="setting-sub" id="rateStatus">Fetching…</div></div>
+          <span class="pill-badge" id="ratePill" style="background:var(--surface2);color:var(--text-dim)">…</span>
+        </div>
+        <div class="setting-row"><div><div class="setting-label">API Source</div><div class="setting-sub">open.er-api.com (free, no key)</div></div><span class="pill-badge pill-green">Live</span></div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Wallet Overview</div>
+        <div class="setting-row"><div class="setting-label">Current Balance</div><strong style="color:var(--gold);font-family:var(--fser);font-size:18px" id="setBalance">—</strong></div>
+        <div class="setting-row"><div class="setting-label">Total Transactions</div><strong id="setTx">—</strong></div>
+        <div class="setting-row"><div class="setting-label">Friends</div><strong id="setFr">—</strong></div>
+        <div class="setting-row"><div class="setting-label">Groups</div><strong id="setGr">—</strong></div>
+        <div class="setting-row"><div class="setting-label">Active Splits</div><strong id="setSp">—</strong></div>
+      </div>
+
+      <div class="settings-section">
+        <div class="settings-section-title">Preferences</div>
+        <div class="setting-row"><div><div class="setting-label">Notifications</div><div class="setting-sub">Payment alerts</div></div><div class="toggle on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></div></div>
+        <div class="setting-row"><div><div class="setting-label">Biometric lock</div><div class="setting-sub">Fingerprint / FaceID</div></div><div class="toggle on" onclick="this.classList.toggle('on');this.classList.toggle('off')"></div></div>
+        <div class="setting-row"><div><div class="setting-label">Auto-settle reminders</div><div class="setting-sub">Weekly nudges</div></div><div class="toggle off" onclick="this.classList.toggle('on');this.classList.toggle('off')"></div></div>
+      </div>
+
+      <div class="settings-section" style="border-color:rgba(224,90,90,0.2)">
+        <div class="settings-section-title" style="color:var(--red)">Danger Zone</div>
+        <div class="setting-row">
+          <div><div class="setting-label">Reset all app data</div><div class="setting-sub">Returns to demo defaults — irreversible</div></div>
+          <button onclick="doReset()" style="padding:8px 18px;border-radius:9px;background:var(--red-bg);border:1px solid rgba(224,90,90,0.3);color:var(--red);font-size:12.5px;font-weight:600;cursor:pointer" onmouseover="this.style.background='var(--red)';this.style.color='var(--bg)'" onmouseout="this.style.background='var(--red-bg)';this.style.color='var(--red)'">Reset</button>
+        </div>
+      </div>
+
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  function loadStats() {
+    const stats=Wallet.getStats();
+    document.getElementById('setBalance').textContent = formatINR(stats.balance);
+    document.getElementById('setTx').textContent      = Wallet.getTransactions().length;
+    document.getElementById('setFr').textContent      = Friends.getAll().length;
+    document.getElementById('setGr').textContent      = Groups.getAll().length;
+    document.getElementById('setSp').textContent      = Splits.getAll().length;
+  }
+
+  // async: fetch live rate on settings page too
+  (async () => {
+    try {
+      const result=await fetchExchangeRate();          // await + try/catch
+      const sub=document.getElementById('rateStatus');
+      const pill=document.getElementById('ratePill');
+      if(result.rate) {
+        sub.textContent=`1 USD = ₹${result.rate.toFixed(2)} · ${result.updated?.slice(0,16)||''}`;
+        pill.textContent='Live ✓'; pill.className='pill-badge pill-green';
+      } else {
+        sub.textContent='Could not fetch: '+result.error;
+        pill.textContent='Offline'; pill.className='pill-badge';
+        pill.style.cssText='background:var(--red-bg);color:var(--red)';
+      }
+    } catch(err) {
+      document.getElementById('rateStatus').textContent='Fetch failed: '+err.message;
+    }
+  })();
+
+  window.doReset=()=>{
+    openModal('Reset All Data?',`<p style="color:var(--text-mid);line-height:1.7">This permanently erases your <strong>wallet, transactions, friends, groups, splits</strong>.<br><br><strong style="color:var(--red)">Cannot be undone.</strong></p>`,{
+      confirmLabel:'Yes, Reset Everything',danger:true,
+      onConfirm(){ closeModal(); setTimeout(resetToDefaults,300); }
+    });
+  };
+
+  loadStats();
+</script>
+</body>
+</html>

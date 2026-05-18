@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ypay · History</title>
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="ambient"></div>
+<div class="shell">
+  <aside class="sidebar" id="sidebar" data-page="history"></aside>
+  <main class="main">
+    <header class="page-header">
+      <div class="page-title-block">
+        <div class="page-title"><em>History</em></div>
+        <div class="page-subtitle">Month-by-month spending story</div>
+      </div>
+    </header>
+    <div class="history-body">
+      <div class="section-card animate" style="margin-bottom:28px">
+        <div class="section-card-title">Category Breakdown</div>
+        <div id="catBreakdown" style="display:flex;flex-direction:column;gap:10px"></div>
+      </div>
+      <div id="historyList" class="animate delay-1"></div>
+    </div>
+  </main>
+</div>
+<script src="shared.js"></script>
+<script>
+  function render() {
+    const txs=Wallet.getTransactions();
+    // HOF: filter + reduce for category totals
+    const totalSpend=txs.filter(t=>t.type==='debit').reduce((s,t)=>s+t.amount,0);
+    const catTotals=txs.filter(t=>t.type==='debit').reduce((acc,t)=>{
+      acc[t.category]=(acc[t.category]||0)+t.amount; return acc;
+    },{});
+    // HOF: sort entries
+    const sorted=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]);
+    document.getElementById('catBreakdown').innerHTML=sorted.map(([cat,amt])=>`
+      <div class="spend-row">
+        <span class="spend-name" style="width:120px">${cat}</span>
+        <div class="spend-track" style="height:7px"><div class="spend-fill" style="width:${Math.round(amt/totalSpend*100)}%"></div></div>
+        <span style="font-size:12.5px;color:var(--text-mid);width:80px;text-align:right">${formatINR(amt)}</span>
+        <span style="font-size:11px;color:var(--text-dim);width:34px;text-align:right">${Math.round(amt/totalSpend*100)}%</span>
+      </div>`).join('');
+
+    // HOF: reduce to group by month
+    const byMonth=txs.reduce((acc,tx)=>{
+      const parts=tx.date.split(' ');
+      const key=parts.length>=3?`${parts[1]} ${parts[2]}`:tx.date;
+      (acc[key]=acc[key]||[]).push(tx); return acc;
+    },{});
+
+    document.getElementById('historyList').innerHTML=Object.entries(byMonth).map(([month,items])=>{
+      const income =items.filter(t=>t.type==='credit').reduce((s,t)=>s+t.amount,0);
+      const expense=items.filter(t=>t.type==='debit').reduce((s,t)=>s+t.amount,0);
+      return `<div class="month-group">
+        <div class="month-label" style="display:flex;justify-content:space-between;align-items:center">
+          <span>${month}</span>
+          <div style="display:flex;gap:14px;font-size:13px;font-family:var(--fsan)">
+            ${income ?`<span style="color:var(--green)">+${formatINR(income)}</span>`:''}
+            ${expense?`<span style="color:var(--text-dim)">−${formatINR(expense)}</span>`:''}
+          </div>
+        </div>
+        ${items.map(renderTxItem).join('')}
+      </div>`;
+    }).join('');
+  }
+  render();
+</script>
+</body>
+</html>
